@@ -1,0 +1,118 @@
+#include <cstdio>
+#include <thread>
+#include <climits>
+
+// #define CAS(p, old_val, new_val) __sync_bool_compare_and_swap(p, old_val, new_val)
+
+struct Node;
+
+#define PACK(next, mark) ((uint64_t)(next) + (uint64_t)(mark))
+#define GET_NEXT(p) (Node *)(p & (~uint64_t(1)))
+#define GET_MARK(p) (bool)(p & 1)
+
+struct Node {
+    int key;
+    uint64_t next_mark;
+
+    Node (int k = 0, Node *n = NULL, bool m = false) {
+        key = k;
+        next_mark = PACK(n, m);
+    }
+
+    Node *getNext() {
+        return GET_NEXT(next_mark);
+    }
+
+    bool getMark() {
+        return GET_MARK(next_mark);
+    }
+
+    bool CAS(Node *old_next, bool old_mark, Node *new_next, bool new_mark) {
+        return __sync_bool_compare_and_swap(&next_mark, PACK(old_next, old_mark), PACK(new_next, new_mark));
+    }
+};
+
+
+class MichaelList {
+public:
+    MichaelList() {
+        Node *newn = new Node(INT_MAX);
+        head = new Node(INT_MIN, newn);
+    }
+
+    bool Insert(int key) {
+        Node *newn = new Node(key);
+        while (true) {
+            Node *p, p_s;
+            if (_find(key, p, p_s)) {
+                delete newn;
+                return false;
+            }
+
+            newn->next = p_s.next;
+            if (CAS(p, p_s, Node(p_s.key, newn, false, p_s.tag+1))) {
+                return true;
+            }
+        }
+    }
+
+    bool Find(int key) {
+        Node *p, p_s;
+        return _find(key, p, p_s);
+    }
+
+    bool Delete(int key) {
+        while (true) {
+            Node *p, p_s;
+            if (!_find(key, p, p_s)) {
+                return false;
+            }
+            Node *next = p_s.next;
+            Node next_s = next;
+            if (next_s.mark) continue;
+
+            if (!CAS(next, next_s, Node(next_s.key, next_s->next, true, next_s.tag+1))) {
+                continue;
+            }
+
+            Node new_p = Node(p_s.key, next_s->next, false, p_s.tag+1);
+            if (CAS(p, p_s, new_p)) {
+                // delete next
+                return true;
+            }
+        }
+    }
+
+private:
+    bool _find(int key, Node* &p, Node &p_s) {
+try_again:
+        Node *p = head;
+        Node *next = p->getNext();
+        bool pmark = p->getMark();
+
+        while (true) {
+            bool nmark = next->getMark();
+            Node *new_next = next->getNext();
+            if (nmark) {
+                if (p->CAS(next, pmark, new_next, pmark)) {
+                    // delete next
+                    next = new_next;
+                } else {
+                    goto try_again;
+                }
+            } else {
+                if (key > next->key) {
+                    p = next;
+                    pmark = nmark;
+                    next = new_next
+                } else {
+                    return true;
+                }
+            }
+        }
+    }
+
+Node *head;
+};
+
+typedef MichaelList KV;

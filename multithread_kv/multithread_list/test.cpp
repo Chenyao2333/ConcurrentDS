@@ -1,0 +1,99 @@
+#if defined(MICHAEL_LIST)
+#   include "michael_list.h"
+typedef MichaelList KV;
+#elif defined(LAZY_LIST)
+#   include "lazy_list.h"
+#elif defined(LINKED_LIST)
+#   include "linked_list.h"
+#endif
+
+#include <cstdio>
+#include <thread>
+#include <set>
+#include <vector>
+#include <sstream>
+
+KV kv;
+
+#define CAS(p, ov, nv) __sync_bool_compare_and_swap(p, ov, nv)
+int t[10];
+void test_correctness() {
+    kv.ThreadInit();
+    for (int i = 0; i < 1e6; i++) {
+        for (int j = 0; j < 10; j++) {
+            while (!kv.Insert(t[j]));
+            while (!kv.Delete(t[j]));
+        }
+    }
+    kv.ThreadRelease();
+}
+
+void test() {
+    std::set<int> s;
+    std::vector<int> v;
+
+    for (int i = 0; i <= 30000; i++) {
+        int opt = rand() % 10;
+        // printf("opt = %d\n", opt);
+        if (opt <= 2 and s.size()) {
+            int key = v[rand() % v.size()];
+            if (rand() % 2) key = rand();
+
+            bool in_s = s.find(key) != s.end();
+            bool in_lt = kv.Find(key);
+            if (in_s != in_lt) {
+                printf("WA\n");
+                printf("key = %d lt_query = %d\n", key, kv.Find(key));
+                exit(-1);
+            }
+        } else if (opt <= 4 and s.size()) {
+            int key = v[rand() % v.size()];
+
+            bool del_s = s.find(key) != s.end();
+            s.erase(key);
+            bool del_lt = kv.Delete(key);
+
+            if (del_s != del_lt) {
+                printf("WA\n");
+                printf("key = %d\n", key);
+                exit(-1);
+            }
+        } else {
+            int key = rand();
+            kv.Insert(key);
+            s.insert(key);
+            v.push_back(key);
+        }
+    }
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        printf("Usage: %s <threads_num>\n", argv[0]);
+        exit(-1);
+    }
+
+    std::stringstream ss;
+    ss << argv[1];
+    int thread_num;
+    ss >> thread_num;
+
+    std::vector<std::thread> ths(thread_num);
+
+    for (int i = 0; i < 10; i++) {
+        t[i] = rand();
+    }
+    for (auto &th: ths) {
+        th = std::thread(test_correctness);
+    }
+
+    for (auto &th: ths) {
+        th.join();
+    }
+
+    kv.ThreadInit();
+    for (int i = 0; i < 10; i++) {
+        if (kv.Find(t[i]) or kv.Delete(t[i])) printf("WA\n");
+    }
+    kv.ThreadRelease();
+}
